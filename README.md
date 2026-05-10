@@ -25,3 +25,7 @@ java -cp out servidor.ServidorMatchmaking
 ```bash
 java -cp out cliente.Cliente
 ```
+
+---
+
+Tambien ejecutando ./levantar_servidores.sh se levantan los 3 al mismo tiempo
