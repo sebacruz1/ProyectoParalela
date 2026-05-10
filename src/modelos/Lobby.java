@@ -11,14 +11,12 @@ public class Lobby implements Serializable {
     private int id;
     private Usuario host;
     private List<Usuario> jugadores;
-    private String estado;
 
     public Lobby(int id, Usuario host) {
         this.id = id;
         this.host = host;
         this.jugadores = new ArrayList<>();
         this.jugadores.add(host);
-        this.estado = "ESPERANDO";
     }
 
     public int getId() {
@@ -33,16 +31,8 @@ public class Lobby implements Serializable {
         return jugadores;
     }
 
-    public String getEstado() {
-        return estado;
-    }
-
     public void agregarJugador(Usuario usuario) {
         jugadores.add(usuario);
-    }
-
-    public void setEstado(String estado) {
-        this.estado = estado;
     }
 
     @Override
@@ -53,7 +43,6 @@ public class Lobby implements Serializable {
                 .orElse("vacío");
         return "[" + id + "] Host: " + host.getUsername() +
                 " | Jugadores: " + jugadores.size() +
-                " | Estado: " + estado +
                 " | (" + nombres + ")";
     }
 }
