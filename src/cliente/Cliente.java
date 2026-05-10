@@ -110,15 +110,25 @@ public class Cliente {
 
                     case 2 -> {
                         // Comprar juego
+                        List<Juego> catalogo = (List<Juego>) in.readObject();
+                        System.out.println("\nJUEGOS DISPONIBLES");
+                        if (catalogo.isEmpty()) {
+                            System.out.println("No hay juegos disponibles para comprar.");
+                            break;
+                        }
+                        catalogo.forEach(System.out::println);
                         System.out.print("ID del juego a comprar: ");
                         int idJuego = leerOpcion();
                         out.writeObject(idJuego);
                         out.flush();
                         String resultado = (String) in.readObject();
+                        usuario = (Usuario) in.readObject();
                         if (resultado.equals(COMPRA_OK)) {
-                            System.out.println("Compra exitosa");
+                            System.out.println(
+                                    "Compra exitosa | Nuevo saldo: $" + String.format("%,d", usuario.getSaldo()));
                         } else {
-                            System.out.println("Compra fallida. Revisa tu saldo o si ya tienes el juego.");
+                            System.out.println(
+                                    "Compra fallida. Saldo actual: $" + String.format("%,d", usuario.getSaldo()));
                         }
                     }
 
@@ -159,7 +169,6 @@ public class Cliente {
     }
 
     // MATCHMAKING
-
     private static void menuMatchmaking() {
         try (
                 Socket socket = new Socket(HOST, PUERTO_MATCHMAKING);
@@ -186,7 +195,6 @@ public class Cliente {
                 switch (opcion) {
 
                     case 1 -> {
-                        // Ver lobbies
                         List<Lobby> lobbies = (List<Lobby>) in.readObject();
                         System.out.println("\nLOBBIES DISPONIBLES");
                         if (lobbies.isEmpty()) {
@@ -197,34 +205,60 @@ public class Cliente {
                     }
 
                     case 2 -> {
-                        // Crear lobby
-                        Lobby lobby = (Lobby) in.readObject();
-                        System.out.println("\nLobby creado: " + lobby);
-                        System.out.println("Entrando al chat... (escribe /salir para salir)");
-                        iniciarChat(in, out);
-                        activo = false;
+                        List<Juego> biblioteca = (List<Juego>) in.readObject();
+                        if (biblioteca.isEmpty()) {
+                            System.out.println("No tenes juegos en tu biblioteca. Compra uno primero.");
+                            break;
+                        }
+                        System.out.println("\nElige el juego para el lobby:");
+                        biblioteca.forEach(System.out::println);
+                        System.out.print("ID del juego: ");
+                        int idJuego = leerOpcion();
+                        out.writeObject(idJuego);
+                        out.flush();
+
+                        Object respuesta = in.readObject();
+                        if (respuesta instanceof String msg) {
+                            System.out.println("Error: " + msg);
+                        } else {
+                            Lobby lobby = (Lobby) respuesta;
+                            System.out.println("\nLobby creado: " + lobby);
+                            System.out.println("Entrando al chat... (escribe /salir para salir)");
+                            iniciarChat(in, out);
+                            activo = false;
+                        }
                     }
 
                     case 3 -> {
-                        // Unirse a lobby
+                        List<Lobby> lobbies = (List<Lobby>) in.readObject();
+                        System.out.println("\nLOBBIES DISPONIBLES");
+                        if (lobbies.isEmpty()) {
+                            System.out.println("No hay lobbies activos.");
+                            break;
+                        }
+                        lobbies.forEach(System.out::println);
                         System.out.print("ID del lobby: ");
                         int idLobby = leerOpcion();
                         out.writeObject(idLobby);
                         out.flush();
+
                         String resultado = (String) in.readObject();
-                        if (resultado.equals(UNIDO_OK)) {
-                            Lobby lobby = (Lobby) in.readObject();
-                            System.out.println("\nUnido a: " + lobby);
-                            System.out.println("Entrando al chat... (escribe /salir para salir)");
-                            iniciarChat(in, out);
-                            activo = false;
-                        } else {
-                            System.out.println("No se pudo unir al lobby.");
+                        switch (resultado) {
+                            case UNIDO_OK -> {
+                                Lobby lobby = (Lobby) in.readObject();
+                                System.out.println("\nUnido a: " + lobby);
+                                System.out.println("Entrando al chat... (escribe /salir para salir)");
+                                iniciarChat(in, out);
+                                activo = false;
+                            }
+                            case "NO_TIENES_JUEGO" ->
+                                System.out.println("No tienes ese juego en tu biblioteca. Compralo primero.");
+                            default ->
+                                System.out.println("No se pudo unir al lobby (ya estás adentro o no existe).");
                         }
                     }
 
                     case 4 -> {
-                        // Volver
                         in.readObject();
                         activo = false;
                     }
@@ -237,7 +271,6 @@ public class Cliente {
     }
 
     // CHAT
-
     private static void iniciarChat(ObjectInputStream in, ObjectOutputStream out) {
         // Hilo para recibir mensajes del servidor
         Thread receptor = new Thread(() -> {
@@ -268,7 +301,6 @@ public class Cliente {
     }
 
     // UTILS
-
     private static int leerOpcion() {
         try {
             return Integer.parseInt(scanner.nextLine().trim());

@@ -2,8 +2,8 @@ package store;
 
 import modelos.Lobby;
 import modelos.Usuario;
+import modelos.Juego;
 
-import java.rmi.server.UnicastRemoteObject;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -29,8 +29,8 @@ public class Matchmaking {
         return new ArrayList<>(lobbies);
     }
 
-    public synchronized Lobby crearLobby(Usuario host) {
-        Lobby lobby = new Lobby(contadorLobbies++, host);
+    public synchronized Lobby crearLobby(Usuario host, Juego juego) {
+        Lobby lobby = new Lobby(contadorLobbies++, host, juego);
         lobbies.add(lobby);
         return lobby;
     }
@@ -39,12 +39,20 @@ public class Matchmaking {
         Lobby lobby = getLobby(idLobby);
         if (lobby == null)
             return null;
-        boolean yaEsta = lobby.getJugadores().stream().anyMatch(j -> j.getId() == usuario.getId());
-        if (yaEsta)
+        boolean agregado = lobby.agregarJugador(usuario);
+        if (!agregado)
             return null;
-
-        lobby.agregarJugador(usuario);
         return lobby;
+    }
+
+    public synchronized void cerrarLobbySiVacio(int idLobby) {
+        Lobby lobby = getLobby(idLobby);
+        if (lobby == null) {
+            return;
+        }
+        if (!lobby.tieneConexionesActivas()) {
+            lobbies.remove(lobby);
+        }
     }
 
     private Lobby getLobby(int id) {

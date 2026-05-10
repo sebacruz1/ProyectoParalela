@@ -42,13 +42,21 @@ public class HandlerTienda implements Runnable {
                     }
                     case 2 -> {
                         // COmprar juego
+                        List<Juego> catalogo = tienda.getCatalogo();
+                        out.writeObject(catalogo);
+                        out.flush();
+                        if (catalogo.isEmpty()) {
+                            break;
+                        }
                         int idJuego = (int) in.readObject();
                         boolean exito = tienda.comprar(usuario, idJuego);
                         out.writeObject(exito ? COMPRA_OK : COMPRA_ERROR);
+                        out.reset();
+                        out.writeObject(usuario);
                         out.flush();
                     }
                     case 3 -> {
-                        List<Juego> biblioteca = tienda.getBiblioteca(usuario.getId());
+                        List<Juego> biblioteca = usuario.getBiblioteca();
                         out.writeObject(biblioteca);
                         out.flush();
 
@@ -58,6 +66,7 @@ public class HandlerTienda implements Runnable {
                         int monto = (int) in.readObject();
                         usuario.cargarSaldo(monto);
                         out.writeObject(SALDO_OK);
+                        out.reset();
                         out.writeObject(usuario);
                         out.flush();
                     }

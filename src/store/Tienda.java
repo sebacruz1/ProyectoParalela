@@ -65,6 +65,7 @@ public class Tienda {
             return false;
 
         bibliotecas.computeIfAbsent(usuario.getId(), k -> new ArrayList<>()).add(juego);
+        usuario.agregarJuego(juego);
         Transaccion t = new Transaccion(contadorTransacciones++, usuario, juego);
         historial.computeIfAbsent(usuario.getId(), k -> new ArrayList<>()).add(t);
 
