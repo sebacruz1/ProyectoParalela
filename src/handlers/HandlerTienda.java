@@ -11,6 +11,9 @@ import java.util.List;
 public class HandlerTienda implements Runnable {
     private Socket socket;
     private Tienda tienda;
+    private static final String COMPRA_OK = "COMPRA_OK";
+    private static final String COMPRA_ERROR = "COMPRA_ERROR";
+    private static final String SALDO_OK = "SALDO_OK";
 
     public HandlerTienda(Socket socket) {
         this.socket = socket;
@@ -24,7 +27,7 @@ public class HandlerTienda implements Runnable {
                 ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
 
             Usuario usuario = (Usuario) in.readObject();
-            System.out.println("[Tienda] Usuario conectado: " usuario.getUsername());
+            System.out.println("[Tienda] Usuario conectado: " + usuario.getUsername());
 
             boolean activo = true;
 
@@ -41,7 +44,7 @@ public class HandlerTienda implements Runnable {
                         // COmprar juego
                         int idJuego = (int) in.readObject();
                         boolean exito = tienda.comprar(usuario, idJuego);
-                        out.writeObject(exito ? "COMPRA REALIZADA" : "ERROR EN LA COMPRA");
+                        out.writeObject(exito ? COMPRA_OK : COMPRA_ERROR);
                         out.flush();
                     }
                     case 3 -> {
@@ -54,7 +57,7 @@ public class HandlerTienda implements Runnable {
                         // Cargar saldo
                         int monto = (int) in.readObject();
                         usuario.cargarSaldo(monto);
-                        out.writeObject("SALDO CARGADO");
+                        out.writeObject(SALDO_OK);
                         out.writeObject(usuario);
                         out.flush();
                     }

@@ -11,6 +11,8 @@ import java.util.List;
 public class HandlerMatchmaking implements Runnable {
     private Socket socket;
     private Matchmaking matchmaking;
+    private static final String UNIDO_OK = "UNIDO_OK";
+    private static final String UNIDO_ERROR = "UNIDO_ERROR";
 
     public HandlerMatchmaking(Socket socket) {
         this.socket = socket;
@@ -49,12 +51,12 @@ public class HandlerMatchmaking implements Runnable {
                         int idLobby = (int) in.readObject();
                         Lobby lobby = matchmaking.unirse(idLobby, usuario);
                         if (lobby != null) {
-                            out.writeObject("CONECTADO");
+                            out.writeObject(UNIDO_OK);
                             out.writeObject(lobby);
                             out.flush();
                             iniciarChat(lobby, usuario, in, out);
                         } else {
-                            out.writeObject("ERROR AL CONECTARSE");
+                            out.writeObject(UNIDO_ERROR);
                             out.flush();
                         }
                     }
