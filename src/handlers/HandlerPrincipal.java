@@ -9,7 +9,7 @@ public class HandlerPrincipal implements Runnable {
     private Socket socket;
     private static int contadorUsuarios = 0;
 
-    private HandlerPrincipal(Socket socket) {
+    public HandlerPrincipal(Socket socket) {
         this.socket = socket;
 
     }
