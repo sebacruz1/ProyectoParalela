@@ -35,16 +35,16 @@ public class Matchmaking {
         return lobby;
     }
 
-    public synchronized boolean unirse(int idLobby, Usuario usuario) {
+    public synchronized Lobby unirse(int idLobby, Usuario usuario) {
         Lobby lobby = getLobby(idLobby);
         if (lobby == null)
-            return false;
+            return null;
         boolean yaEsta = lobby.getJugadores().stream().anyMatch(j -> j.getId() == usuario.getId());
         if (yaEsta)
-            return false;
+            return null;
 
         lobby.agregarJugador(usuario);
-        return true;
+        return lobby;
     }
 
     private Lobby getLobby(int id) {
