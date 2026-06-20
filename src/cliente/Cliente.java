@@ -11,10 +11,8 @@ import java.util.Scanner;
 
 public class Cliente {
 
-    private static final String HOST = "localhost";
-    private static final int PUERTO_PRINCIPAL = 6000;
-    private static final int PUERTO_TIENDA = 6001;
-    private static final int PUERTO_MATCHMAKING = 6002;
+    private static final String HOST_DEFAULT = "localhost";
+    private static final int PUERTO_CLIENTE_DEFAULT = 7001;
     private static final String COMPRA_OK = "COMPRA_OK";
     private static final String SALDO_OK = "SALDO_OK";
     private static final String UNIDO_OK = "UNIDO_OK";
@@ -23,14 +21,18 @@ public class Cliente {
     private static Usuario usuario;
 
     public static void main(String[] args) {
+        String host = args.length > 0 ? args[0] : HOST_DEFAULT;
+        int puerto = args.length > 1 ? Integer.parseInt(args[1]) : PUERTO_CLIENTE_DEFAULT;
+
         System.out.println("=================================");
         System.out.println("     EPIC GAMES - BIENVENIDO     ");
         System.out.println("=================================");
+        System.out.println("Conectando a " + host + ":" + puerto);
         System.out.print("Ingresa tu nombre de usuario: ");
         String username = scanner.nextLine();
 
         try (
-                Socket socket = new Socket(HOST, PUERTO_PRINCIPAL);
+                Socket socket = new Socket(host, puerto);
                 ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
                 ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
             // Enviar nombre y recibir usuario creado
@@ -53,14 +55,15 @@ public class Cliente {
                 out.writeObject(opcion);
                 out.flush();
 
-                String respuesta = (String) in.readObject();
-                switch (respuesta) {
-                    case "TIENDA" -> menuTienda();
-                    case "MATCHMAKING" -> menuMatchmaking();
-                    case "SALIR" -> {
+                switch (opcion) {
+                    case 1 -> menuTienda(in, out);
+                    case 2 -> menuMatchmaking(in, out);
+                    case 3 -> {
+                        in.readObject();
                         System.out.println("\nHasta luego, " + usuario.getUsername() + "!");
                         activo = false;
                     }
+                    default -> System.out.println((String) in.readObject());
                 }
             }
 
@@ -70,14 +73,8 @@ public class Cliente {
     }
 
     // TIENDA
-    private static void menuTienda() {
-        try (
-                Socket socket = new Socket(HOST, PUERTO_TIENDA);
-                ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
-                ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
-            out.writeObject(usuario);
-            out.flush();
-
+    private static void menuTienda(ObjectInputStream in, ObjectOutputStream out) {
+        try {
             boolean activo = true;
             while (activo) {
                 System.out.println("\n=================================");
@@ -169,14 +166,8 @@ public class Cliente {
     }
 
     // MATCHMAKING
-    private static void menuMatchmaking() {
-        try (
-                Socket socket = new Socket(HOST, PUERTO_MATCHMAKING);
-                ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
-                ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
-            out.writeObject(usuario);
-            out.flush();
-
+    private static void menuMatchmaking(ObjectInputStream in, ObjectOutputStream out) {
+        try {
             boolean activo = true;
             while (activo) {
                 System.out.println("\n=================================");
@@ -273,11 +264,16 @@ public class Cliente {
     // CHAT
     private static void iniciarChat(ObjectInputStream in, ObjectOutputStream out) {
         // Hilo para recibir mensajes del servidor
+        // La conexión es la misma que se reutiliza para el resto de la sesión
+        String miDespedida = "[" + usuario.getUsername() + " salió del lobby]";
         Thread receptor = new Thread(() -> {
             try {
                 while (true) {
                     String mensaje = (String) in.readObject();
                     System.out.println(mensaje);
+                    if (mensaje.equals(miDespedida)) {
+                        break;
+                    }
                 }
             } catch (IOException | ClassNotFoundException e) {
                 System.out.println("[Chat desconectado]");
@@ -297,6 +293,11 @@ public class Cliente {
             }
         } catch (IOException e) {
             System.out.println("Error en chat: " + e.getMessage());
+        }
+
+        try {
+            receptor.join(5000);
+        } catch (InterruptedException ignored) {
         }
     }
 
