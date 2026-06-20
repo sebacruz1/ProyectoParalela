@@ -23,9 +23,10 @@ public class HandlerPeer implements Runnable {
         try (
                 ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
                 ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
-            Mensaje mensaje = (Mensaje) in.readObject();
-            nodo.getClock().observe(mensaje.getLamport());
-            nodo.getLogger().log(nodo.getClock().valorActual(), "Peer recibido (sin despachar aún): " + mensaje);
+            while (true) {
+                Mensaje mensaje = (Mensaje) in.readObject();
+                nodo.procesarMensaje(mensaje, out);
+            }
         } catch (IOException | ClassNotFoundException e) {
             nodo.getLogger().log(nodo.getClock().valorActual(), "Conexión de peer cerrada: " + e.getMessage());
         }

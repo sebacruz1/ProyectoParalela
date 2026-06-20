@@ -4,13 +4,18 @@ import coordinacion.LamportClock;
 import coordinacion.NodoLogger;
 import handlers.HandlerCliente;
 import handlers.HandlerPeer;
+import protocolo.Mensaje;
+import protocolo.TipoMensaje;
 import store.Matchmaking;
 import store.Tienda;
 
 import java.io.IOException;
+import java.io.ObjectOutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Un nodo del cluster EpicGames: sirve clientes (login + Tienda + Matchmaking)
@@ -24,6 +29,8 @@ public class Nodo {
     private final NodoLogger logger;
     private final Tienda tienda = Tienda.getInstancia();
     private final Matchmaking matchmaking = Matchmaking.getInstancia();
+    private final Membresia membresia;
+    private final Map<Integer, PeerClient> peerClients = new HashMap<>();
 
     public Nodo(int id, List<NodoConfig> peers) {
         this.id = id;
@@ -34,6 +41,7 @@ public class Nodo {
                 .orElseThrow(() -> new IllegalArgumentException(
                         "El nodo " + id + " no está en la configuración de peers"));
         this.logger = new NodoLogger(id);
+        this.membresia = new Membresia(peers, id);
     }
 
     public int getId() {
@@ -60,6 +68,10 @@ public class Nodo {
         return peers;
     }
 
+    public Membresia getMembresia() {
+        return membresia;
+    }
+
     public void iniciar() throws IOException {
         logger.log(clock.valorActual(), "Iniciando nodo " + id
                 + " (cliente=" + self.getPuertoCliente() + ", peer=" + self.getPuertoPeer() + ")");
@@ -69,6 +81,30 @@ public class Nodo {
 
         new Thread(() -> aceptarClientes(serverCliente)).start();
         new Thread(() -> aceptarPeers(serverPeer)).start();
+
+        for (NodoConfig peer : peers) {
+            if (peer.getId() != id) {
+                peerClients.put(peer.getId(), new PeerClient(peer, this));
+            }
+        }
+
+        new HeartbeatMonitor(this, peerClients).iniciar();
+    }
+
+    public void procesarMensaje(Mensaje mensaje, ObjectOutputStream canalRespuesta) throws IOException {
+        clock.observe(mensaje.getLamport());
+        switch (mensaje.getTipo()) {
+            case PING -> {
+                membresia.marcarVivo(mensaje.getOrigenNodoId());
+                Mensaje pong = new Mensaje(TipoMensaje.PONG, clock.tick(), id, null);
+                synchronized (canalRespuesta) {
+                    canalRespuesta.writeObject(pong);
+                    canalRespuesta.flush();
+                }
+            }
+            case PONG -> membresia.marcarVivo(mensaje.getOrigenNodoId());
+            default -> logger.log(clock.valorActual(), "Mensaje sin manejar aún: " + mensaje);
+        }
     }
 
     private void aceptarClientes(ServerSocket serverSocket) {
