@@ -1,5 +1,6 @@
 package cluster;
 
+import coordinacion.Bully;
 import coordinacion.LamportClock;
 import coordinacion.NodoLogger;
 import handlers.HandlerCliente;
@@ -31,6 +32,7 @@ public class Nodo {
     private final Matchmaking matchmaking = Matchmaking.getInstancia();
     private final Membresia membresia;
     private final Map<Integer, PeerClient> peerClients = new HashMap<>();
+    private Bully bully;
 
     public Nodo(int id, List<NodoConfig> peers) {
         this.id = id;
@@ -72,6 +74,10 @@ public class Nodo {
         return membresia;
     }
 
+    public Bully getBully() {
+        return bully;
+    }
+
     public void iniciar() throws IOException {
         logger.log(clock.valorActual(), "Iniciando nodo " + id
                 + " (cliente=" + self.getPuertoCliente() + ", peer=" + self.getPuertoPeer() + ")");
@@ -88,7 +94,19 @@ public class Nodo {
             }
         }
 
+        this.bully = new Bully(this, peerClients);
         new HeartbeatMonitor(this, peerClients).iniciar();
+
+        // Dar un margen para que los PeerClient terminen de conectar
+        Thread bootstrapEleccion = new Thread(() -> {
+            try {
+                Thread.sleep(1500);
+            } catch (InterruptedException ignored) {
+            }
+            bully.iniciarEleccion();
+        }, "bully-bootstrap");
+        bootstrapEleccion.setDaemon(true);
+        bootstrapEleccion.start();
     }
 
     public void procesarMensaje(Mensaje mensaje, ObjectOutputStream canalRespuesta) throws IOException {
@@ -103,6 +121,9 @@ public class Nodo {
                 }
             }
             case PONG -> membresia.marcarVivo(mensaje.getOrigenNodoId());
+            case ELECTION -> bully.recibirElection(mensaje.getOrigenNodoId(), canalRespuesta);
+            case OK -> bully.recibirOk(mensaje.getOrigenNodoId());
+            case COORDINATOR -> bully.recibirCoordinator(mensaje.getOrigenNodoId());
             default -> logger.log(clock.valorActual(), "Mensaje sin manejar aún: " + mensaje);
         }
     }

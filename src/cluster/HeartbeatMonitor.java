@@ -50,6 +50,11 @@ public class HeartbeatMonitor {
             if (inactividad >= TIMEOUT_CAIDA_MS) {
                 membresia.marcarCaido(peerId);
                 nodo.getLogger().log(nodo.getClock().valorActual(), "NODO CAIDO: " + peerId);
+                if (nodo.getBully() != null && peerId == nodo.getBully().getCoordinadorId()) {
+                    nodo.getLogger().log(nodo.getClock().valorActual(),
+                            "Coordinador caído (" + peerId + "), disparando reelección");
+                    nodo.getBully().iniciarEleccion();
+                }
             } else if (inactividad >= TIMEOUT_SOSPECHA_MS) {
                 if (membresia.marcarSospechosoSiCorresponde(peerId)) {
                     nodo.getLogger().log(nodo.getClock().valorActual(), "SOSPECHA caida nodo " + peerId);
