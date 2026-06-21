@@ -1,5 +1,6 @@
 package handlers;
 
+import carga.MetricasNodo;
 import cluster.Nodo;
 import cluster.NodoConfig;
 import coordinacion.RicartAgrawala;
@@ -81,6 +82,13 @@ public class HandlerCliente implements Runnable {
                         out.writeObject("SALIR");
                         out.flush();
                         activo = false;
+                    }
+                    case 9 -> {
+                        long bullyMsgs = nodo.getBully() != null ? nodo.getBully().getMensajesEnviados() : 0;
+                        long raMsgs = nodo.getRicartAgrawala() != null ? nodo.getRicartAgrawala().getMensajesEnviados()
+                                : 0;
+                        out.writeObject(new MetricasNodo(nodo.getId(), bullyMsgs, raMsgs));
+                        out.flush();
                     }
                     default -> {
                         out.writeObject("ERROR");
@@ -196,9 +204,6 @@ public class HandlerCliente implements Runnable {
         }
     }
 
-    /**
-     * Agrega la transacción al log replicado local y la difunde a los demás nodos.
-     */
     private void difundirTransaccion(Transaccion t, int idJuego, Usuario usuario) {
         String txId = nodo.getId() + ":" + t.getId();
         int ts = nodo.getClock().tick();
@@ -264,9 +269,7 @@ public class HandlerCliente implements Runnable {
                         break;
                     }
 
-                    // El lobby vive (con conexiones reales) solo en su nodo dueño; si no
-                    // somos nosotros, redirigimos al cliente en vez de "unirlo" a una
-                    // copia local sin chat real detrás.
+                    // El lobby vive (con conexiones reales) solo en su nodo dueño
                     if (lobbyObjetivo.getNodoDueno() != nodo.getId()) {
                         NodoConfig destino = nodo.configDePeer(lobbyObjetivo.getNodoDueno());
                         if (destino != null) {

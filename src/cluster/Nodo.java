@@ -91,7 +91,10 @@ public class Nodo {
         return ricartAgrawala;
     }
 
-    /** Config de un peer por id (host/puertos), usado para armar la dirección de un redirect. */
+    /**
+     * Config de un peer por id (host/puertos), usado para armar la dirección de un
+     * redirect.
+     */
     public NodoConfig configDePeer(int peerId) {
         return peers.stream().filter(p -> p.getId() == peerId).findFirst().orElse(null);
     }
@@ -110,6 +113,16 @@ public class Nodo {
         logger.log(clock.valorActual(), "Iniciando nodo " + id
                 + " (cliente=" + self.getPuertoCliente() + ", peer=" + self.getPuertoPeer() + ")");
 
+        // Usado por scripts/matar_coordinador.sh para encontrar el PID de este nodo
+        // a partir de su id, sin tener que adivinarlo entre los procesos java.
+        try {
+            java.nio.file.Files.createDirectories(java.nio.file.Paths.get("logs"));
+            java.nio.file.Files.writeString(java.nio.file.Paths.get("logs/node" + id + ".pid"),
+                    String.valueOf(ProcessHandle.current().pid()));
+        } catch (IOException e) {
+            logger.log(clock.valorActual(), "No se pudo escribir el archivo de PID: " + e.getMessage());
+        }
+
         ServerSocket serverPeer = new ServerSocket(self.getPuertoPeer());
         new Thread(() -> aceptarPeers(serverPeer)).start();
 
@@ -123,14 +136,11 @@ public class Nodo {
         this.ricartAgrawala = new RicartAgrawala(this, peerClients);
         new HeartbeatMonitor(this, peerClients).iniciar();
 
-        // Antes de aceptar clientes, intentar ponerse al día con el stock y el log
-        // de transacciones que ya tiene el resto del cluster (bloqueante, con tope).
         sincronizarEstadoBloqueante();
 
         ServerSocket serverCliente = new ServerSocket(self.getPuertoCliente());
         new Thread(() -> aceptarClientes(serverCliente)).start();
 
-        // Dar un margen extra para que los PeerClient terminen de conectar.
         Thread bootstrapEleccion = new Thread(() -> {
             try {
                 Thread.sleep(500);
@@ -142,12 +152,6 @@ public class Nodo {
         bootstrapEleccion.start();
     }
 
-    /**
-     * Pide el estado actual (stock + log de transacciones) a un peer activo y
-     * espera la respuesta antes de aceptar clientes, para que este nodo no
-     * arranque "atrasado" respecto al resto del cluster. Si no hay peers
-     * activos o nadie responde a tiempo, arranca igual con su estado local
-     */
     private void sincronizarEstadoBloqueante() {
         long limite = System.currentTimeMillis() + 2000;
         int intentos = 0;

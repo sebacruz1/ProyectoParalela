@@ -10,6 +10,7 @@ import java.io.ObjectOutputStream;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -29,10 +30,19 @@ public class RicartAgrawala {
     private int miTimestamp = -1;
     private final Set<Integer> respuestasPendientes = new HashSet<>();
     private final Set<Integer> colaDiferida = new HashSet<>();
+    private final AtomicLong mensajesEnviados = new AtomicLong();
 
     public RicartAgrawala(Nodo nodo, Map<Integer, PeerClient> peerClients) {
         this.nodo = nodo;
         this.peerClients = peerClients;
+    }
+
+    /**
+     * Cantidad de mensajes RA_REQUEST/RA_REPLY enviados por este nodo (métrica de
+     * carga).
+     */
+    public long getMensajesEnviados() {
+        return mensajesEnviados.get();
     }
 
     // Bloquea el hilo llamante hasta obtener la sección crítica
@@ -58,6 +68,7 @@ public class RicartAgrawala {
                 PeerClient pc = peerClients.get(pid);
                 if (pc != null) {
                     pc.enviar(request);
+                    mensajesEnviados.incrementAndGet();
                 }
             }
         }
@@ -88,6 +99,7 @@ public class RicartAgrawala {
                 PeerClient pc = peerClients.get(pid);
                 if (pc != null) {
                     pc.enviar(new Mensaje(TipoMensaje.RA_REPLY, nodo.getClock().tick(), nodo.getId(), null));
+                    mensajesEnviados.incrementAndGet();
                 }
             }
         } finally {
@@ -117,6 +129,7 @@ public class RicartAgrawala {
                 canalRespuesta.writeObject(reply);
                 canalRespuesta.flush();
             }
+            mensajesEnviados.incrementAndGet();
         }
     }
 

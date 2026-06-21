@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 /**
@@ -32,6 +33,7 @@ public class Bully {
     private volatile int coordinadorId = -1;
     private volatile boolean eleccionEnCurso = false;
     private volatile boolean okRecibido = false;
+    private final AtomicLong mensajesEnviados = new AtomicLong();
 
     public Bully(Nodo nodo, Map<Integer, PeerClient> peerClients) {
         this.nodo = nodo;
@@ -40,6 +42,10 @@ public class Bully {
 
     public int getCoordinadorId() {
         return coordinadorId;
+    }
+
+    public long getMensajesEnviados() {
+        return mensajesEnviados.get();
     }
 
     public void iniciarEleccion() {
@@ -69,6 +75,7 @@ public class Bully {
             PeerClient pc = peerClients.get(pid);
             if (pc != null) {
                 pc.enviar(election);
+                mensajesEnviados.incrementAndGet();
             }
         }
 
@@ -110,6 +117,7 @@ public class Bully {
             PeerClient pc = peerClients.get(pid);
             if (pc != null) {
                 pc.enviar(anuncio);
+                mensajesEnviados.incrementAndGet();
             }
         }
     }
@@ -124,6 +132,7 @@ public class Bully {
             canalRespuesta.writeObject(ok);
             canalRespuesta.flush();
         }
+        mensajesEnviados.incrementAndGet();
         iniciarEleccion();
     }
 
