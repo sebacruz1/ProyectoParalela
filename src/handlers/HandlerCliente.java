@@ -1,6 +1,7 @@
 package handlers;
 
 import cluster.Nodo;
+import cluster.NodoConfig;
 import coordinacion.RicartAgrawala;
 import modelos.Juego;
 import modelos.Lobby;
@@ -50,13 +51,25 @@ public class HandlerCliente implements Runnable {
                 ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
                 ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
 
-            username = (String) in.readObject();
-            Usuario usuario = new Usuario(contadorUsuarios.getAndIncrement(), username);
-            usuario.setSesionActiva(true);
+            // Login normal: llega un username (String) y se crea un Usuario nuevo.
+            // Sesión redirigida desde otro nodo (ver "unirse a lobby"): llega el
+            // Usuario ya autenticado tal cual lo tiene el cliente, para no perder
+            // su biblioteca/saldo de sesión al cambiar de nodo solo para el chat.
+            Object primerMensaje = in.readObject();
+            Usuario usuario;
+            if (primerMensaje instanceof Usuario u) {
+                usuario = u;
+                username = usuario.getUsername();
+                nodo.getLogger().log(nodo.getClock().valorActual(), "Sesión retomada (redirect): " + username);
+            } else {
+                username = (String) primerMensaje;
+                int idGlobal = nodo.getId() * 100_000 + contadorUsuarios.getAndIncrement();
+                usuario = new Usuario(idGlobal, username);
+                usuario.setSesionActiva(true);
+                nodo.getLogger().log(nodo.getClock().valorActual(), "Usuario conectado: " + username);
+            }
             out.writeObject(usuario);
             out.flush();
-
-            nodo.getLogger().log(nodo.getClock().valorActual(), "Usuario conectado: " + username);
 
             boolean activo = true;
             while (activo) {
@@ -138,7 +151,10 @@ public class HandlerCliente implements Runnable {
         }
     }
 
-    /** Compra de un ítem normal: se replica al log global de transacciones (sin mutex, sin recurso escaso). */
+    /**
+     * Compra de un ítem normal: se replica al log global de transacciones (sin
+     * mutex, sin recurso escaso).
+     */
     private boolean comprarNormal(Usuario usuario, int idJuego) {
         Transaccion t = tienda.comprar(usuario, idJuego);
         if (t == null) {
@@ -180,7 +196,9 @@ public class HandlerCliente implements Runnable {
         }
     }
 
-    /** Agrega la transacción al log replicado local y la difunde a los demás nodos. */
+    /**
+     * Agrega la transacción al log replicado local y la difunde a los demás nodos.
+     */
     private void difundirTransaccion(Transaccion t, int idJuego, Usuario usuario) {
         String txId = nodo.getId() + ":" + t.getId();
         int ts = nodo.getClock().tick();
@@ -220,9 +238,10 @@ public class HandlerCliente implements Runnable {
                         out.flush();
                         break;
                     }
-                    Lobby lobby = matchmaking.crearLobby(usuario, juego);
+                    Lobby lobby = matchmaking.crearLobby(usuario, juego, nodo.getId());
                     out.writeObject(lobby);
                     out.flush();
+                    nodo.broadcast(new Mensaje(TipoMensaje.LOBBY_CREADO, nodo.getClock().tick(), nodo.getId(), lobby));
                     iniciarChat(lobby, usuario, in, out);
                     // El chat es bloqueante hasta /salir o desconexión
                     activo = false;
@@ -241,6 +260,20 @@ public class HandlerCliente implements Runnable {
 
                     if (lobbyObjetivo == null) {
                         out.writeObject(UNIDO_ERROR);
+                        out.flush();
+                        break;
+                    }
+
+                    // El lobby vive (con conexiones reales) solo en su nodo dueño; si no
+                    // somos nosotros, redirigimos al cliente en vez de "unirlo" a una
+                    // copia local sin chat real detrás.
+                    if (lobbyObjetivo.getNodoDueno() != nodo.getId()) {
+                        NodoConfig destino = nodo.configDePeer(lobbyObjetivo.getNodoDueno());
+                        if (destino != null) {
+                            out.writeObject("REDIRECT:" + destino.getHost() + ":" + destino.getPuertoCliente());
+                        } else {
+                            out.writeObject(UNIDO_ERROR);
+                        }
                         out.flush();
                         break;
                     }
@@ -301,7 +334,12 @@ public class HandlerCliente implements Runnable {
         } finally {
             lobby.eliminarJugador(usuario.getId());
             lobby.eliminarConexion(out);
-            matchmaking.cerrarLobbySiVacio(lobby.getId());
+            boolean cerrado = matchmaking.cerrarLobbySiVacio(lobby.getId());
+            if (cerrado) {
+                nodo.broadcast(
+                        new Mensaje(TipoMensaje.LOBBY_CERRADO, nodo.getClock().tick(), nodo.getId(), lobby.getId()));
+                nodo.getLogger().log(nodo.getClock().valorActual(), "Lobby cerrado y difundido: " + lobby.getId());
+            }
         }
     }
 }

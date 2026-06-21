@@ -6,6 +6,7 @@ import coordinacion.NodoLogger;
 import coordinacion.RicartAgrawala;
 import handlers.HandlerCliente;
 import handlers.HandlerPeer;
+import modelos.Lobby;
 import protocolo.EstadoSync;
 import protocolo.Mensaje;
 import protocolo.StockSync;
@@ -88,6 +89,11 @@ public class Nodo {
 
     public RicartAgrawala getRicartAgrawala() {
         return ricartAgrawala;
+    }
+
+    /** Config de un peer por id (host/puertos), usado para armar la dirección de un redirect. */
+    public NodoConfig configDePeer(int peerId) {
+        return peers.stream().filter(p -> p.getId() == peerId).findFirst().orElse(null);
     }
 
     // Envía un mensaje a todos los peers actualmente activos.
@@ -212,6 +218,21 @@ public class Nodo {
                             + " (" + snapshot.getLogGlobal().size() + " tx, stock=" + snapshot.getStockFlash() + ")");
                 }
                 syncLatch.countDown();
+            }
+            case LOBBY_CREADO -> {
+                if (mensaje.getPayload() instanceof Lobby lobby) {
+                    matchmaking.registrarLobbyRemoto(lobby);
+                    logger.log(clock.valorActual(),
+                            "Lobby remoto registrado: " + lobby.getId() + " (nodo " + lobby.getNodoDueno() + ")");
+                }
+            }
+            case LOBBY_CERRADO -> {
+                if (mensaje.getPayload() instanceof Integer idLobby) {
+                    boolean eliminado = matchmaking.eliminarLobbyRemoto(idLobby);
+                    if (eliminado) {
+                        logger.log(clock.valorActual(), "Lobby remoto eliminado: " + idLobby);
+                    }
+                }
             }
             default -> logger.log(clock.valorActual(), "Mensaje sin manejar aún: " + mensaje);
         }

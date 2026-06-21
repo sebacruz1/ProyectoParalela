@@ -29,8 +29,10 @@ public class Matchmaking {
         return new ArrayList<>(lobbies);
     }
 
-    public synchronized Lobby crearLobby(Usuario host, Juego juego) {
-        Lobby lobby = new Lobby(contadorLobbies++, host, juego);
+    /** El id se prefija con nodoId para que sea único en todo el cluster. */
+    public synchronized Lobby crearLobby(Usuario host, Juego juego, int nodoId) {
+        int id = nodoId * 1000 + contadorLobbies++;
+        Lobby lobby = new Lobby(id, host, juego, nodoId);
         lobbies.add(lobby);
         return lobby;
     }
@@ -45,14 +47,30 @@ public class Matchmaking {
         return lobby;
     }
 
-    public synchronized void cerrarLobbySiVacio(int idLobby) {
+    /** Devuelve true si el lobby efectivamente se eliminó (estaba vacío). */
+    public synchronized boolean cerrarLobbySiVacio(int idLobby) {
         Lobby lobby = getLobby(idLobby);
         if (lobby == null) {
-            return;
+            return false;
         }
         if (!lobby.tieneConexionesActivas()) {
             lobbies.remove(lobby);
+            return true;
         }
+        return false;
+    }
+
+    /** Registra un lobby creado en otro nodo (vía LOBBY_CREADO), si no lo teníamos ya. */
+    public synchronized void registrarLobbyRemoto(Lobby lobby) {
+        boolean yaExiste = lobbies.stream().anyMatch(l -> l.getId() == lobby.getId());
+        if (!yaExiste) {
+            lobbies.add(lobby);
+        }
+    }
+
+    /** Quita un lobby cerrado en su nodo dueño (vía LOBBY_CERRADO). Devuelve true si existía. */
+    public synchronized boolean eliminarLobbyRemoto(int idLobby) {
+        return lobbies.removeIf(l -> l.getId() == idLobby);
     }
 
     private Lobby getLobby(int id) {

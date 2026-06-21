@@ -234,6 +234,11 @@ public class Cliente {
                         out.flush();
 
                         String resultado = (String) in.readObject();
+                        if (resultado.startsWith("REDIRECT:")) {
+                            String[] partes = resultado.substring("REDIRECT:".length()).split(":");
+                            unirseRedirigido(partes[0], Integer.parseInt(partes[1]), idLobby);
+                            break;
+                        }
                         switch (resultado) {
                             case UNIDO_OK -> {
                                 Lobby lobby = (Lobby) in.readObject();
@@ -258,6 +263,51 @@ public class Cliente {
 
         } catch (IOException | ClassNotFoundException e) {
             System.out.println("Error en matchmaking: " + e.getMessage());
+        }
+    }
+
+    /**
+     * El lobby elegido pertenece a otro nodo: abre una conexión aparte hacia
+     * ese nodo, retoma la sesión enviando el Usuario ya autenticado (en vez
+     * de un username nuevo, para no perder biblioteca/saldo) y reproduce el
+     * mismo flujo de "unirse a lobby" allí. Al terminar el chat, esta
+     * conexión temporal se cierra y el cliente vuelve al menú de su nodo
+     * original.
+     */
+    private static void unirseRedirigido(String host, int puerto, int idLobby) {
+        System.out.println("\n[Lobby alojado en otro nodo, redirigiendo a " + host + ":" + puerto + "...]");
+        try (
+                Socket socket = new Socket(host, puerto);
+                ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
+                ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
+            out.writeObject(usuario);
+            out.flush();
+            usuario = (Usuario) in.readObject();
+
+            out.writeObject(2); // Matchmaking
+            out.flush();
+            out.writeObject(3); // Unirse a lobby
+            out.flush();
+
+            in.readObject(); // lista de lobbies del nodo destino, ya sabemos el id que queremos
+            out.writeObject(idLobby);
+            out.flush();
+
+            String resultado = (String) in.readObject();
+            switch (resultado) {
+                case UNIDO_OK -> {
+                    Lobby lobby = (Lobby) in.readObject();
+                    System.out.println("\nUnido a: " + lobby);
+                    System.out.println("Entrando al chat... (escribe /salir para salir)");
+                    iniciarChat(in, out);
+                }
+                case "NO_TIENES_JUEGO" ->
+                    System.out.println("No tienes ese juego en tu biblioteca. Compralo primero.");
+                default ->
+                    System.out.println("No se pudo unir al lobby (ya estás adentro o no existe).");
+            }
+        } catch (IOException | ClassNotFoundException e) {
+            System.out.println("Error al unirse en el nodo dueño del lobby: " + e.getMessage());
         }
     }
 

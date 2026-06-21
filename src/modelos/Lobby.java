@@ -12,13 +12,15 @@ public class Lobby implements Serializable {
     private int id;
     private Usuario host;
     private Juego juego;
+    private int nodoDueno;
     private final List<Usuario> jugadores;
     private transient List<ObjectOutputStream> conexiones = new ArrayList<>();
 
-    public Lobby(int id, Usuario host, Juego juego) {
+    public Lobby(int id, Usuario host, Juego juego, int nodoDueno) {
         this.id = id;
         this.host = host;
         this.juego = juego;
+        this.nodoDueno = nodoDueno;
         this.jugadores = new ArrayList<>();
         this.jugadores.add(host);
     }
@@ -33,6 +35,10 @@ public class Lobby implements Serializable {
 
     public Juego getJuego() {
         return juego;
+    }
+
+    public int getNodoDueno() {
+        return nodoDueno;
     }
 
     public synchronized List<Usuario> getJugadores() {
@@ -90,6 +96,7 @@ public class Lobby implements Serializable {
         return "[" + id + "] Juego: " + juego.getNombre() +
                 " | Host: " + host.getUsername() +
                 " | Jugadores: " + jugadores.size() +
+                " | Nodo: " + nodoDueno +
                 " | (" + nombres + ")";
     }
 }
