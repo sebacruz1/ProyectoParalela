@@ -1,9 +1,15 @@
 package handlers;
 
 import cluster.Nodo;
+import coordinacion.RicartAgrawala;
 import modelos.Juego;
 import modelos.Lobby;
+import modelos.Transaccion;
 import modelos.Usuario;
+import protocolo.Mensaje;
+import protocolo.StockSync;
+import protocolo.TipoMensaje;
+import protocolo.TransaccionReplicada;
 import store.Matchmaking;
 import store.Tienda;
 
@@ -77,8 +83,7 @@ public class HandlerCliente implements Runnable {
         }
     }
 
-    // ---- TIENDA (antes HandlerTienda, ahora submenú dentro de la misma conexión)
-    // ----
+    // TIENDA
     private void correrTienda(Usuario usuario, ObjectInputStream in, ObjectOutputStream out)
             throws IOException, ClassNotFoundException {
         boolean activo = true;
@@ -98,7 +103,10 @@ public class HandlerCliente implements Runnable {
                         break;
                     }
                     int idJuego = (int) in.readObject();
-                    boolean exito = tienda.comprar(usuario, idJuego);
+                    Juego juego = tienda.getJuego(idJuego);
+                    boolean exito = (juego != null && juego.isOfertaFlash())
+                            ? comprarFlash(usuario, idJuego)
+                            : comprarNormal(usuario, idJuego);
                     out.writeObject(exito ? COMPRA_OK : COMPRA_ERROR);
                     out.reset();
                     out.writeObject(usuario);
@@ -130,8 +138,60 @@ public class HandlerCliente implements Runnable {
         }
     }
 
-    // ---- MATCHMAKING (antes HandlerMatchmaking, ahora submenú dentro de la misma
-    // conexión) ----
+    /** Compra de un ítem normal: se replica al log global de transacciones (sin mutex, sin recurso escaso). */
+    private boolean comprarNormal(Usuario usuario, int idJuego) {
+        Transaccion t = tienda.comprar(usuario, idJuego);
+        if (t == null) {
+            nodo.getLogger().log(nodo.getClock().valorActual(),
+                    "Compra RECHAZADA: juego=" + idJuego + " usuario=" + usuario.getUsername());
+            return false;
+        }
+        difundirTransaccion(t, idJuego, usuario);
+        return true;
+    }
+
+    /**
+     * Compra de un ítem de oferta flash: el stock es un recurso compartido entre
+     * nodos, así que solo se puede decrementar dentro de la sección crítica que
+     * otorga Ricart-Agrawala. Al salir con éxito, se difunde el nuevo stock y la
+     * transacción a los demás nodos para que todos converjan al mismo valor.
+     */
+    private boolean comprarFlash(Usuario usuario, int idJuego) {
+        RicartAgrawala ra = nodo.getRicartAgrawala();
+        try {
+            ra.solicitarSeccionCritica();
+            Transaccion t = tienda.comprarFlash(usuario, idJuego);
+            if (t == null) {
+                nodo.getLogger().log(nodo.getClock().valorActual(),
+                        "Compra flash RECHAZADA: juego=" + idJuego + " usuario=" + usuario.getUsername());
+                return false;
+            }
+            int nuevoStock = tienda.getStock(idJuego);
+            Mensaje sync = new Mensaje(TipoMensaje.TX_COMMIT, nodo.getClock().tick(), nodo.getId(),
+                    new StockSync(idJuego, nuevoStock));
+            nodo.broadcast(sync);
+            nodo.getLogger().log(nodo.getClock().valorActual(),
+                    "Compra flash OK: juego=" + idJuego + " usuario=" + usuario.getUsername()
+                            + " stock_restante=" + nuevoStock);
+            difundirTransaccion(t, idJuego, usuario);
+            return true;
+        } finally {
+            ra.liberarSeccionCritica();
+        }
+    }
+
+    /** Agrega la transacción al log replicado local y la difunde a los demás nodos. */
+    private void difundirTransaccion(Transaccion t, int idJuego, Usuario usuario) {
+        String txId = nodo.getId() + ":" + t.getId();
+        int ts = nodo.getClock().tick();
+        TransaccionReplicada registro = new TransaccionReplicada(txId, t, ts, nodo.getId());
+        tienda.registrarEnLogGlobal(registro);
+        nodo.broadcast(new Mensaje(TipoMensaje.TX_COMMIT, ts, nodo.getId(), registro));
+        nodo.getLogger().log(nodo.getClock().valorActual(),
+                "TX commit: " + txId + " juego=" + idJuego + " usuario=" + usuario.getUsername());
+    }
+
+    // MATCHMAKING
     private void correrMatchmaking(Usuario usuario, ObjectInputStream in, ObjectOutputStream out)
             throws IOException, ClassNotFoundException {
         boolean activo = true;
@@ -164,9 +224,7 @@ public class HandlerCliente implements Runnable {
                     out.writeObject(lobby);
                     out.flush();
                     iniciarChat(lobby, usuario, in, out);
-                    // El chat es bloqueante hasta /salir o desconexión; al volver,
-                    // el cliente ya regresó al menú principal (ver Cliente.java),
-                    // así que este submenú también debe terminar aquí.
+                    // El chat es bloqueante hasta /salir o desconexión
                     activo = false;
                 }
                 case 3 -> {

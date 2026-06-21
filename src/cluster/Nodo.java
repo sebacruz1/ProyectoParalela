@@ -3,10 +3,14 @@ package cluster;
 import coordinacion.Bully;
 import coordinacion.LamportClock;
 import coordinacion.NodoLogger;
+import coordinacion.RicartAgrawala;
 import handlers.HandlerCliente;
 import handlers.HandlerPeer;
+import protocolo.EstadoSync;
 import protocolo.Mensaje;
+import protocolo.StockSync;
 import protocolo.TipoMensaje;
+import protocolo.TransaccionReplicada;
 import store.Matchmaking;
 import store.Tienda;
 
@@ -17,6 +21,8 @@ import java.net.Socket;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Un nodo del cluster EpicGames: sirve clientes (login + Tienda + Matchmaking)
@@ -33,6 +39,8 @@ public class Nodo {
     private final Membresia membresia;
     private final Map<Integer, PeerClient> peerClients = new HashMap<>();
     private Bully bully;
+    private RicartAgrawala ricartAgrawala;
+    private final CountDownLatch syncLatch = new CountDownLatch(1);
 
     public Nodo(int id, List<NodoConfig> peers) {
         this.id = id;
@@ -78,14 +86,25 @@ public class Nodo {
         return bully;
     }
 
+    public RicartAgrawala getRicartAgrawala() {
+        return ricartAgrawala;
+    }
+
+    // Envía un mensaje a todos los peers actualmente activos.
+    public void broadcast(Mensaje mensaje) {
+        for (int pid : membresia.idsActivos()) {
+            PeerClient pc = peerClients.get(pid);
+            if (pc != null) {
+                pc.enviar(mensaje);
+            }
+        }
+    }
+
     public void iniciar() throws IOException {
         logger.log(clock.valorActual(), "Iniciando nodo " + id
                 + " (cliente=" + self.getPuertoCliente() + ", peer=" + self.getPuertoPeer() + ")");
 
-        ServerSocket serverCliente = new ServerSocket(self.getPuertoCliente());
         ServerSocket serverPeer = new ServerSocket(self.getPuertoPeer());
-
-        new Thread(() -> aceptarClientes(serverCliente)).start();
         new Thread(() -> aceptarPeers(serverPeer)).start();
 
         for (NodoConfig peer : peers) {
@@ -95,18 +114,57 @@ public class Nodo {
         }
 
         this.bully = new Bully(this, peerClients);
+        this.ricartAgrawala = new RicartAgrawala(this, peerClients);
         new HeartbeatMonitor(this, peerClients).iniciar();
 
-        // Dar un margen para que los PeerClient terminen de conectar
+        // Antes de aceptar clientes, intentar ponerse al día con el stock y el log
+        // de transacciones que ya tiene el resto del cluster (bloqueante, con tope).
+        sincronizarEstadoBloqueante();
+
+        ServerSocket serverCliente = new ServerSocket(self.getPuertoCliente());
+        new Thread(() -> aceptarClientes(serverCliente)).start();
+
+        // Dar un margen extra para que los PeerClient terminen de conectar.
         Thread bootstrapEleccion = new Thread(() -> {
             try {
-                Thread.sleep(1500);
+                Thread.sleep(500);
             } catch (InterruptedException ignored) {
             }
             bully.iniciarEleccion();
         }, "bully-bootstrap");
         bootstrapEleccion.setDaemon(true);
         bootstrapEleccion.start();
+    }
+
+    /**
+     * Pide el estado actual (stock + log de transacciones) a un peer activo y
+     * espera la respuesta antes de aceptar clientes, para que este nodo no
+     * arranque "atrasado" respecto al resto del cluster. Si no hay peers
+     * activos o nadie responde a tiempo, arranca igual con su estado local
+     */
+    private void sincronizarEstadoBloqueante() {
+        long limite = System.currentTimeMillis() + 2000;
+        int intentos = 0;
+        while (System.currentTimeMillis() < limite && syncLatch.getCount() > 0) {
+            for (int peerId : membresia.idsActivos()) {
+                PeerClient pc = peerClients.get(peerId);
+                if (pc != null && pc.isConectado()) {
+                    intentos++;
+                    logger.log(clock.valorActual(), "Pidiendo sincronización de estado a nodo " + peerId);
+                    pc.enviar(new Mensaje(TipoMensaje.JOIN, clock.tick(), id, null));
+                    break;
+                }
+            }
+            try {
+                syncLatch.await(400, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException ignored) {
+            }
+        }
+        if (syncLatch.getCount() > 0) {
+            logger.log(clock.valorActual(), intentos == 0
+                    ? "Sin peers activos al arrancar; se omite sincronización inicial"
+                    : "Sincronización inicial agotó el tiempo de espera; se arranca con estado local");
+        }
     }
 
     public void procesarMensaje(Mensaje mensaje, ObjectOutputStream canalRespuesta) throws IOException {
@@ -124,6 +182,37 @@ public class Nodo {
             case ELECTION -> bully.recibirElection(mensaje.getOrigenNodoId(), canalRespuesta);
             case OK -> bully.recibirOk(mensaje.getOrigenNodoId());
             case COORDINATOR -> bully.recibirCoordinator(mensaje.getOrigenNodoId());
+            case RA_REQUEST ->
+                ricartAgrawala.recibirRequest(mensaje.getOrigenNodoId(), mensaje.getLamport(), canalRespuesta);
+            case RA_REPLY -> ricartAgrawala.recibirReply(mensaje.getOrigenNodoId());
+            case TX_COMMIT -> {
+                if (mensaje.getPayload() instanceof StockSync sync) {
+                    tienda.fijarStock(sync.getIdJuego(), sync.getNuevoStock());
+                    logger.log(clock.valorActual(),
+                            "Stock sincronizado: juego=" + sync.getIdJuego() + " stock=" + sync.getNuevoStock());
+                } else if (mensaje.getPayload() instanceof TransaccionReplicada registro) {
+                    boolean nueva = tienda.registrarEnLogGlobal(registro);
+                    if (nueva) {
+                        logger.log(clock.valorActual(), "TX replicada: " + registro.getTxId());
+                    }
+                }
+            }
+            case JOIN -> {
+                EstadoSync snapshot = new EstadoSync(tienda.getStockSnapshot(), tienda.getLogGlobal());
+                Mensaje respuesta = new Mensaje(TipoMensaje.SYNC_RESPONSE, clock.tick(), id, snapshot);
+                synchronized (canalRespuesta) {
+                    canalRespuesta.writeObject(respuesta);
+                    canalRespuesta.flush();
+                }
+            }
+            case SYNC_RESPONSE -> {
+                if (mensaje.getPayload() instanceof EstadoSync snapshot) {
+                    tienda.aplicarSnapshot(snapshot.getStockFlash(), snapshot.getLogGlobal());
+                    logger.log(clock.valorActual(), "Estado sincronizado desde nodo " + mensaje.getOrigenNodoId()
+                            + " (" + snapshot.getLogGlobal().size() + " tx, stock=" + snapshot.getStockFlash() + ")");
+                }
+                syncLatch.countDown();
+            }
             default -> logger.log(clock.valorActual(), "Mensaje sin manejar aún: " + mensaje);
         }
     }

@@ -4,6 +4,7 @@ public enum TipoMensaje {
     PING,
     PONG,
     JOIN,
+    SYNC_RESPONSE,
     ELECTION,
     OK,
     COORDINATOR,

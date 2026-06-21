@@ -10,14 +10,18 @@ public class Juego implements Serializable {
     private String nombre;
     private int precio;
     private String descripcion;
+    private boolean ofertaFlash;
 
     public Juego(int id, String nombre, int precio, String descripcion) {
+        this(id, nombre, precio, descripcion, false);
+    }
 
+    public Juego(int id, String nombre, int precio, String descripcion, boolean ofertaFlash) {
         this.id = id;
         this.nombre = nombre;
         this.precio = precio;
         this.descripcion = descripcion;
-
+        this.ofertaFlash = ofertaFlash;
     }
 
     public int getId() {
@@ -36,10 +40,15 @@ public class Juego implements Serializable {
         return descripcion;
     }
 
+    public boolean isOfertaFlash() {
+        return ofertaFlash;
+    }
+
     @Override
     public String toString() {
         String precioStr = (precio == 0) ? "GRATIS" : "$" + String.format("%,d", precio);
-        return "[" + id + "] " + nombre + " - " + precioStr;
+        String flashStr = ofertaFlash ? " [OFERTA FLASH - stock limitado]" : "";
+        return "[" + id + "] " + nombre + " - " + precioStr + flashStr;
     }
 
 }

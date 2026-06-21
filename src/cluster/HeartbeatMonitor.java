@@ -55,6 +55,9 @@ public class HeartbeatMonitor {
                             "Coordinador caído (" + peerId + "), disparando reelección");
                     nodo.getBully().iniciarEleccion();
                 }
+                if (nodo.getRicartAgrawala() != null) {
+                    nodo.getRicartAgrawala().peerCaido(peerId);
+                }
             } else if (inactividad >= TIMEOUT_SOSPECHA_MS) {
                 if (membresia.marcarSospechosoSiCorresponde(peerId)) {
                     nodo.getLogger().log(nodo.getClock().valorActual(), "SOSPECHA caida nodo " + peerId);
